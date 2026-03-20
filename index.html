@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>💩 Battleshits</title>
+<style>
+/* ---------- Existing game styles ---------- */
+body {font-family:Arial,sans-serif;margin:0;padding:1rem;background:#f0f8ff;}
+header{ text-align:center; margin-bottom:0.5rem;}
+header img{max-width:260px;}
+h1{text-align:center;}
+#boards{display:flex;gap:2rem;justify-content:center;margin-top:1rem;}
+table{border-collapse:collapse;}
+td{width:30px;height:30px;text-align:center;vertical-align:middle;
+    border:1px solid #555;font-weight:bold;cursor:pointer;}
+.c0{background:#add8e6;}   /* sea   */
+.c1{background:#ffd700;}   /* **shit** (only on your board) */
+.c2{background:#8b4513;color:#fff;}   /* hit   */
+.c3{background:#fff;color:#555;}      /* miss  */
+
+/* ---------- Poop‑drag styling ---------- */
+#poopPool{margin-top:1rem;text-align:center;}
+.poop{
+  width:30px;height:30px;
+  background:url('https://i.imgur.com/9VJ4XgE.png') center/contain no-repeat;
+  cursor:grab;
+}
+.poop.dragging{opacity:0.6;cursor:grabbing;}
+
+/* ---------- Intro overlay (new) ---------- */
+#introOverlay{
+  position:fixed; inset:0; background:#000; z-index:9999;
+}
+</style>
+</head>
+
+<body>
+<!-- ==================== INTRO VIDEO OVERLAY ==================== -->
+<div id="introOverlay">
+  <video id="introVideo"
+         src="assets/intro.mp4"
+         autoplay muted playsinline
+         style="width:100%;height:100%;object-fit:cover;">
+    Your browser does not support HTML5 video.
+  </video>
+</div>
+
+<header>
+  <img src="assets/logo.png" alt="Battle Shits logo">
+</header>
+
+<h1>🦑 Battle Shits</h1>
+
+<div id="boards">
+  <div>
+    <h3>Your Shit‑Board</h3>
+    <table id="playerBoard"></table>
+  </div>
+  <div>
+    <h3>Attack Board</h3>
+    <table id="attackBoard"></table>
+  </div>
+</div>
+
+<pre id="log"></pre>
+
+<div id="poopPool">
+  <span class="poop" draggable="true" id="poop"></span>
+  <span style="margin-left:0.5rem;">(drag onto a cell for extra fun)</span>
+</div>
+
+<audio id="fartSound" src="assets/fart.mp3"></audio>
+
+<script>
+/* --------------------------------------------------------------
+   1️⃣  Core game data & helper functions (unchanged)
+   -------------------------------------------------------------- */
+const createBoard = () => Array.from({length:10},()=>Array(10).fill(0));
+let playerBoard   = createBoard();
+let playerAttack  = createBoard();
+let botBoard      = createBoard();
+let botAttack     = createBoard();
+
+const log = msg => {
+  const el = document.getElementById('log');
+  el.textContent += msg + '\n';
+  el.scrollTop = el.scrollHeight;
+};
+
+/* ---------- ship → shit placement (same logic as original Pascal) ---------- */
+function placeShit(board,size){
+  while(true){
+    const horiz = Math.random()<0.5;
+    const x = Math.floor(Math.random()*(horiz?10-size:10));
+    const y = Math.floor(Math.random()*(horiz?10:10-size));
+    let ok=true;
+    for(let i=0;i<size;i++){
+      const cx=horiz?x+i:x;
+      const cy=horiz?y:y+i;
+      if(board[cy][cx]!==0){ok=false;break;}
+    }
+    if(!ok) continue;
+    for(let i=0;i<size;i++){
+      const cx=horiz?x+i:x;
+      const cy=horiz?y:y+i;
+      board[cy][cx]=1;               // 1 = **shit**
+    }
+    break;
+  }
+}
+[5,4,3,3,2].forEach(sz=>{placeShit(playerBoard,sz);placeShit(botBoard,sz);});
+
+function renderBoard(tableId,board,reveal){
+  const tbl=document.getElementById(tableId);
+  tbl.innerHTML='';
+  for(let y=0;y<10;y++){
+    const tr=document.createElement('tr');
+    for(let x=0;x<10;x++){
+      const td=document.createElement('td');
+      td.dataset.x=x; td.dataset.y=y;
+      const cell=board[y][x];
+      if(cell===2) td.textContent='X';
+      else if(cell===3) td.textContent='O';
+      else if(cell===1 && reveal) td.textContent='@';
+      td.className='c'+cell;
+      tr.appendChild(td);
+    }
+    tbl.appendChild(tr);
+  }
+}
+renderBoard('playerBoard',playerBoard,true);
+renderBoard('attackBoard',playerAttack,false);
+
+const checkWin = board => board.flat().every(c=>c!==1);
+
+/* ---------- sound helper ---------- */
+const fartAudio=document.getElementById('fartSound');
+function playFart(){
+  fartAudio.currentTime=0;
+  fartAudio.play().catch(()=>{});
+}
+
+/* ---------- player click (attack) ---------- */
+document.getElementById('attackBoard')
+  .addEventListener('click', async e=>{
+    const td=e.target.closest('td');
+    if(!td) return;
+    const x=+td.dataset.x, y=+td.dataset.y;
+    if(playerAttack[y][x]!==0) return;
+    if(botBoard[y][x]===1){
+      playerAttack[y][x]=2; botBoard[y][x]=2;
+      log('💥 You hit a **shit**!');
+      playFart();
+    }else{
+      playerAttack[y][x]=3; botBoard[y][x]=3;
+      log('💧 You missed.');
+    }
+    renderBoard('attackBoard',playerAttack,false);
+    if(checkWin(botBoard)){alert('🏆 You win! 🎉');return;}
+    await new Promise(r=>setTimeout(r,800));
+    botTurn();
+});
+
+/* ---------- simple bot turn ---------- */
+function botTurn(){
+  const cand=[];
+  for(let y=0;y<10;y++)for(let x=0;x<10;x++)if(botAttack[y][x]===0)cand.push({x,y});
+  const {x,y}=cand[Math.floor(Math.random()*cand.length)];
+  if(playerBoard[y][x]===1){
+    botAttack[y][x]=2; playerBoard[y][x]=2;
+    log('🤖 Bot hit you at '+String.fromCharCode(97+x)+y);
+    playFart();
+  }else{
+    botAttack[y][x]=3; playerBoard[y][x]=3;
+    log('🤖 Bot missed at '+String.fromCharCode(97+x)+y);
+  }
+  renderBoard('playerBoard',playerBoard,true);
+  if(checkWin(playerBoard)){alert('🤖 Bot wins! 💩');}
+}
+
+/* ---------- poop drag‑and‑drop (cosmetic) ---------- */
+const poop=document.getElementById('poop');
+poop.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/plain','poop');poop.classList.add('dragging');});
+poop.addEventListener('dragend',()=>poop.classList.remove('dragging'));
+
+document.querySelectorAll('#playerBoard td, #attackBoard td')
+  .forEach(cell=>{
+    cell.addEventListener('dragover',e=>e.preventDefault());
+    cell.addEventListener('drop',e=>{
+      e.preventDefault();
+      if(e.dataTransfer.getData('text/plain')!=='poop')return;
+      const old=cell.textContent;
+      cell.textContent='💩';
+      setTimeout(()=>{cell.textContent=old;},1000);
+      playFart();
+    });
+});
+
+/* --------------------------------------------------------------
+   4️⃣  Intro‑video handling (new)
+   -------------------------------------------------------------- */
+(function(){
+  const overlay=document.getElementById('introOverlay');
+  const video=document.getElementById('introVideo');
+
+  // If we already watched the intro this session, skip it.
+  if(sessionStorage.getItem('introSeen')){
+    overlay.style.display='none';
+    return;
+  }
+
+  video.addEventListener('ended',()=>{
+    overlay.style.display='none';
+    sessionStorage.setItem('introSeen','true');
+  });
+
+  // Optional quick‑skip by clicking anywhere on the overlay
+  overlay.addEventListener('click',()=>{
+    video.pause();
+    overlay.style.display='none';
+    sessionStorage.setItem('introSeen','true');
+  });
+})();
+</script>
+</body>
+</html>
